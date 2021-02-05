@@ -1,0 +1,295 @@
+--[[
+There are more subset of scripts which are used, although this is just an example, just like the others!
+Created by ede2355
+]]
+
+local Cuffs = {}
+Cuffs.__index = Cuffs
+
+--//Services
+local RS = game:GetService("RunService")
+
+--//Variables
+local Remotes = script.Parent.Parent:WaitForChild("Remotes")
+local CuffRemote = Remotes:WaitForChild("Cuff")
+local DisableEq = Remotes:WaitForChild("DisableEq")
+local Models = script.Parent.Parent:WaitForChild("Models")
+
+local isServer = RS:IsServer()
+local isClient = RS:IsClient()
+
+local Anims = {
+	Cuffed = "rbxassetid://6159693802";
+}
+
+function Cuffs.Init(Owner)
+	local self = setmetatable(Cuffs,{})
+	--//Setup
+	self.Owner = Owner --//Setting cuff owner
+	self.CuffTool = nil --//Setting tool for ease of access
+	self.Cuffed = {}
+	self.Remotes = Remotes
+	self.Jailed = false
+	self.Detained = false
+	self.Targ = nil
+	if isClient then
+		 self.GUIHandler = require(script:WaitForChild("CuffGUIHandler")).Init(self.Remotes)
+	end
+	return self
+end
+
+--//Simplyfing functions
+local function FindMag(P1,P2)
+	return (P1 - P2).magnitude	
+end
+
+--//Handling functions
+
+if isClient then
+	
+	--//Client Variables
+	local Player = game.Players.LocalPlayer
+	local Char = Player.Character or Player.CharacterAdded:wait()
+	local Mouse = Player:GetMouse()
+	local HRP = Char:WaitForChild("HumanoidRootPart")
+	local Humanoid = Char:WaitForChild("Humanoid")
+	local CuffedAnim
+	--//Client functions
+	
+	function Cuffs:SetCuffs(CuffTool) --//Sets tool for ease of access
+		self.CuffTool = CuffTool
+	end
+
+	DisableEq.OnClientEvent:Connect(function(Type)
+		if Type == "Disable" then
+		game.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack,false)
+			Humanoid:UnequipTools()
+			
+			local Animation = Instance.new("Animation")
+			Animation.Parent = Char
+			Animation.Name = "Cuffed"
+			Animation.AnimationId = Anims.Cuffed
+
+			CuffedAnim = Char:FindFirstChild("Humanoid"):LoadAnimation(Animation)
+
+			CuffedAnim:Play()
+			
+			delay(.5,function()
+				CuffedAnim:AdjustSpeed(0)
+			end)
+			
+			Humanoid.WalkSpeed = 6
+			Humanoid.JumpPower = 15
+		elseif Type == "Enable" then
+			if Char:FindFirstChild("Cuffed") then
+				CuffedAnim:Stop()
+				Char:FindFirstChild("Cuffed"):Destroy()
+			end
+			game.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack,true)
+			Humanoid.WalkSpeed = 16
+			Humanoid.JumpPower = 50
+		end
+	end)
+	
+	--[[function Cuffs:Cuff(Targ)
+		self.Targ = Targ
+		self.Cuffed = true
+	end]]
+	
+	function Cuffs:Activate()
+		if self.CuffTool then
+			--//Start
+			self.CuffTool.Activated:Connect(function()
+				local Targ = Mouse.Target:FindFirstAncestorWhichIsA("Model")
+			local THRP = Targ:FindFirstChild("HumanoidRootPart")
+			if not self.Cuffed[Targ.Name] or self.Cuffed[Targ.Name] == false then
+			if Targ and Targ:IsA("Model") and Targ:FindFirstChild("Humanoid") then
+				local Dist = FindMag(HRP.Position,THRP.Position)
+				if Dist <= 15 then
+					local GUIPos = UDim2.new(0,Mouse.X,0,Mouse.Y - 36)
+							self.GUI = self.GUIHandler:Create(Player.PlayerGui,GUIPos,Targ.Name)
+							
+							self.GUIHandler.Texts["Cuff"].MouseButton1Click:Connect(function()
+								self.GUIHandler:CloseGUI()
+								CuffRemote:FireServer("Cuff",Targ)
+								self.Cuffed[Targ.Name] = true
+							end)
+							
+							self.GUIHandler.Texts["Cancel"].MouseButton1Click:Connect(function()
+								self.GUIHandler:CloseGUI()
+							end)
+							
+						end
+					end
+				elseif self.Cuffed[Targ.Name] == true then
+					local Dist = FindMag(HRP.Position,THRP.Position)
+					if Dist <=15 then
+						local GUIPos = UDim2.new(0,Mouse.X,0,Mouse.Y - 36)
+						self.GUIHandler:Ac2(Targ.Name,GUIPos,self.Jailed,self.Detained)
+						self.GUIHandler.Texts["Un-Cuff"].MouseButton1Click:Connect(function()
+							CuffRemote:FireServer("UnCuff",Targ,self.Jailed,self.Detained)
+							self.GUIHandler:CloseGUI()
+							self.Cuffed[Targ.Name] = false
+						end)
+						
+						self.GUIHandler.Texts["Jail"].MouseButton1Click:Connect(function()
+							if self.Jailed == false and self.Detained == false then
+								self.Jailed = true
+							self.GUIHandler:CloseGUI()
+						
+								CuffRemote:FireServer("Jail",Targ)
+							elseif self.Jailed == true and self.Detained == false then
+								self.GUIHandler:CloseGUI()
+								self.Jailed = false
+								CuffRemote:FireServer("UnJail",Targ)
+							end
+						end)					
+						
+						self.GUIHandler.Texts["Detain"].MouseButton1Click:Connect(function()
+							if self.Detained == false then
+								self.Detained = true
+							self.GUIHandler:CloseGUI()
+								CuffRemote:FireServer("Detain",Targ)
+							elseif self.Detained == true then
+								self.Detained = false
+								self.GUIHandler:CloseGUI()
+								CuffRemote:FireServer("UnDetain",Targ)
+							end
+						end)
+						
+					end
+				end
+			end)
+			--//End
+		end
+	end
+end
+
+if isServer then
+	local function ApplyCuff(Targ)
+		local CuffModel = Models:WaitForChild("Cuffs"):Clone()
+		CuffModel.Parent = Targ
+		local LeftHandC = CuffModel["Left Hand cuff"]
+		local RightHandC = CuffModel["Right Hand cuff"]
+
+		local RightHand = Targ["Right Arm"]
+		local LeftHand = Targ["Left Arm"]
+
+		local Motor1 = Instance.new("Motor6D")
+		Motor1.Parent = LeftHandC
+		Motor1.Part0 = LeftHandC
+		Motor1.Part1 = LeftHand
+
+		local Motor2 = Instance.new("Motor6D")
+		Motor2.Parent = RightHandC
+		Motor2.Part0 = RightHandC
+		Motor2.Part1 = RightHand
+		
+	end
+	CuffRemote.OnServerEvent:Connect(function(Player,Type,Targ)
+		local Spawns = game.Workspace:WaitForChild("Spawns")
+		local TargHRP = Targ:FindFirstChild("HumanoidRootPart")
+		local Char = Player.Character
+		local CharHRP = Char:FindFirstChild("HumanoidRootPart")
+		local TargHumanoid = Targ:FindFirstChild("Humanoid")
+		if Type == "Cuff" then
+			if Targ then
+				if game.Players:GetPlayerFromCharacter(Targ) then
+					local TP = game.Players:GetPlayerFromCharacter(Targ)
+					DisableEq:FireClient(TP,"Disable")
+					ApplyCuff(Targ)
+				else
+					local TargHum = Targ:FindFirstChild("Humanoid")
+					ApplyCuff(Targ)
+					TargHumanoid.WalkSpeed = 6
+				end
+			end
+		elseif Type == "UnCuff" then
+			if Targ then
+				if game.Players:GetPlayerFromCharacter(Targ) then
+					local TP = game.Players:GetPlayerFromCharacter(Targ)
+					DisableEq:FireClient(TP,"Enable")
+					
+					if Targ:FindFirstChild("Cuffs") then
+						Targ:FindFirstChild("Cuffs"):Destroy()
+					end
+					
+				else
+					local TargHum = Targ:FindFirstChild("Humanoid")
+					TargHum.WalkSpeed = 16
+					if Targ:FindFirstChild("Cuffs") then
+						Targ:FindFirstChild("Cuffs"):Destroy()
+					end
+				end
+			end
+			
+		elseif Type == "Jail" then
+			if Targ then
+				if game.Players:GetPlayerFromCharacter(Targ) then
+					local Jail = Spawns.Jail
+					local TP = game.Players:GetPlayerFromCharacter(Targ)
+					TP.TeamColor = BrickColor.new("Dark stone grey")
+					Targ:MoveTo(Jail.Position)
+				end
+			end	
+		elseif Type == "UnJail" then
+			if Targ then
+				if game.Players:GetPlayerFromCharacter(Targ) then
+					local TP = game.Players:GetPlayerFromCharacter(Targ)
+					TP.TeamColor = BrickColor.new("White")
+					--[[
+					You all can configure this part yourselves since I have no idea what your datastore/teaming system looks or works like :D
+					]]
+					
+				end
+			end
+		elseif Type == "Detain" then
+			if Targ then
+				local RopeConstraint = Instance.new("RopeConstraint")
+				local att1 = Instance.new("Attachment")
+				local att2 = Instance.new("Attachment")
+				att1.Parent = CharHRP
+				att2.Parent = TargHRP
+				RopeConstraint.Name = "Rope"
+				att1.Name = "CharAtt"
+				att2.Name = "TargAtt"
+				
+				RopeConstraint.Attachment0 = att1
+				RopeConstraint.Attachment1 = att2
+				RopeConstraint.Visible = true
+				RopeConstraint.Parent = TargHRP
+				
+				for _,v in pairs(Targ:GetChildren()) do
+					if v:IsA("Part") or v:IsA("MeshPart") then
+						v.Massless = true
+					end
+				end
+				
+				TargHumanoid.WalkSpeed = 0
+				TargHumanoid.JumpPower = 0
+				
+				
+			end
+		elseif Type == "UnDetain" then
+			if TargHRP:FindFirstChild("TargAtt") and CharHRP:FindFirstChild("CharAtt") then
+				local att1, att2 = TargHRP:FindFirstChild("TargAtt"), CharHRP:FindFirstChild("CharAtt")
+				local Rope = TargHRP:FindFirstChild("Rope")
+				Rope:Destroy()
+				att1:Destroy()
+				att2:Destroy()
+				
+				for _,v in pairs(Targ:GetChildren()) do
+					if v:IsA("Part") or v:IsA("MeshPart") then
+						v.Massless = false
+					end
+				end
+				
+				TargHumanoid.WalkSpeed = 6
+					TargHumanoid.JumpPower = 15
+				
+			end
+		end
+	end)
+end
+
+return Cuffs
