@@ -1,0 +1,220 @@
+--[[
+Created by ede2355
+
+--Documentation---
+This is a bit outdated, requires an update, but it's usable :D
+
+function Main.Init() --// Initializes the module, adding all of the assets into respective asset tables, also checks if data has been added, if not, it attempts to add it again.
+
+------
+
+function Main:GetModule() --// Self explanatory, gets module and requires it.
+
+------
+
+function Main:GetData() --// Returns anything asked that isn't a module i.e folders, events e.t.c
+
+]]
+
+local Main = {}
+Main.__index = Main
+
+--//Services
+local RS = game:GetService("RunService")
+local TS = game:GetService("TweenService")
+local RepStorage = game.ReplicatedStorage
+local Players = game:GetService("Players")
+local TST = game:GetService("TextService")
+
+--//Variables
+local isClient = RS:IsClient()
+local isServer = RS:IsServer()
+local Modules = RepStorage:WaitForChild("Modules")
+local MainM = Modules:WaitForChild("Main")
+local Loaded = false
+local LoadedMain = MainM:WaitForChild("LoadedMain")
+local LoadedCore = MainM:WaitForChild("LoadedCore")
+
+function Main.Init()
+	local self = setmetatable(Main,{})
+	self.Modules = {}
+	self.RequiredModules = {}
+	self.RequiredClientModules = {}
+	self.Misc = {}
+	for _,Asset in pairs(MainM:GetChildren()) do
+		if Asset:IsA("ModuleScript") then
+			local AssetName = Asset.Name
+			self.Modules[AssetName] = Asset
+		elseif Asset:IsA("Folder") then
+			local AssetName = Asset.Name
+			self.Misc[AssetName] = Asset
+			end
+		end
+	for _,m in pairs(MainM:GetChildren()) do
+		if self.Modules[m.Name] then
+		else
+			warn("A Module has not been succesfully added to the table, retrying...")
+			self.Modules[m.Name] = m
+			if self.Modules[m.Name] then
+			end
+		end
+	end
+	
+	--// Loads core modules using the :Init() function
+	for _,Mods in pairs(self.Misc.CoreModules:GetChildren()) do
+		if isServer then
+		local ModuleName = Mods.Name
+			self.RequiredModules[ModuleName] = require(Mods):Init()
+		elseif isClient and Mods.Name ~= "DStore" then
+		local ModuleName = Mods.Name
+				self.RequiredModules[ModuleName] = require(Mods)
+		end
+		
+		if isServer then
+			local M = self.Modules["PlayerHandling"]
+		self.RequiredModules[M.Name] = require(M).Init()
+		
+		Players.PlayerAdded:Connect(function(plr)
+			local PH = self.RequiredModules[M.Name]
+			plr.CharacterAdded:Connect(function(char)
+				PH:AddTag(char)
+			end)
+		end)
+	end
+		if isClient then
+			for _,Mod in pairs(self.Misc["Client"]:GetChildren()) do
+				local ModName = Mod.Name
+				self.RequiredClientModules[ModName] = require(Mod):Init()
+			end
+			--[[local LM = LoadM.Init()
+			LM:CreateGUI()
+			LM:Load(self.Misc["Assets"],LoadedCore,LoadedMain)]]	
+		end
+		LoadedCore.Value = true
+	end
+	
+	print("--Loaded Main Module")
+	LoadedMain.Value = true
+	return self
+end
+
+
+function Main:InitializeClient()
+	local UIS = game:GetService("UserInputService")
+	local LM = self.RequiredClientModules["Loading"]
+	LM:CreateGUI()
+	LM:Load(self.Misc["Assets"],LoadedCore,LoadedMain)
+	
+	local GUIH = self.RequiredClientModules["GUIHandler"]
+	GUIH:InitEvents(self.Misc["Events"])
+	GUIH:SetupButtons()
+	GUIH:GetData()
+	--[[ DONT FORGET TO REMOVE]]--
+	GUIH.Modules["Settings"].Keybinds["GUI"] = "Tab"
+	GUIH.Modules["Settings"].Keybinds["Run"] = "LeftShift"
+	
+	local Settings = GUIH.Modules["Settings"]
+	local SettingsB = Settings.TB
+	local GUI = GUIH.GUI
+	local SettingsF = GUI:WaitForChild("SettingsF")
+	local KeybindFrame = SettingsF:WaitForChild("KeybindFrame")
+	
+	local Keybinds = Settings.Keybinds
+	for _,TBO in pairs(SettingsB) do
+		TBO.Parent = KeybindFrame
+		local db = false
+		print(TBO)
+		spawn(function()
+		TBO.MouseButton1Click:Connect(function()
+			if db == false then
+				db = true
+			local Key = nil
+			local con 
+			con = UIS.InputBegan:Connect(function(input)
+				Key = tostring(input.KeyCode)
+				Key = string.gsub(Key, "Enum.KeyCode.","")
+				TBO.Text = TBO.Name.." : "..Key
+				delay(.5,function()
+					Keybinds[TBO.Name] = Key 
+					GUIH:SetData()
+					end)
+					con:Disconnect()
+				return
+				end)
+				wait(6)
+				db = false
+				end
+			end)
+		end)
+	end
+	
+end
+
+function Main:InitEvents()
+	local Events = self.Misc["Events"]
+	local SM = Events:WaitForChild("SM")
+	local SMR = Events:WaitForChild("SMR")
+	local ChangeName = Events:WaitForChild("ChangeName")
+	if isServer then
+	
+		local PHMod = self.RequiredModules["PlayerHandling"]
+		local DS = self.RequiredModules["DStore"]
+		
+		function Events.ReturnData.OnServerInvoke(Plr,key,data)
+			local data = DS:GetData(Plr,key,data)
+			return data
+		end
+		
+		Events.ChangeBind.OnServerEvent:Connect(function(plr,d,key,data)
+			DS:SaveData(plr,key,d,data)
+		end)
+		
+	SM.OnServerEvent:Connect(function(plr,txt)
+		local filteredText 
+		local succ, err = pcall(function()
+			filteredText = TST:FilterStringAsync(txt,plr.UserId)
+		end)
+		if succ then
+			local text = filteredText:GetNonChatStringForBroadcastAsync()
+			SMR:FireAllClients(text)
+		else
+			warn("Failed to filter text!")
+			print(err)
+		end
+	end)
+	
+	ChangeName.OnServerEvent:Connect(function(plr,txt)
+		local filteredText 
+		local succ, err = pcall(function()
+			filteredText = TST:FilterStringAsync(txt,plr.UserId)
+		end)
+		if succ then
+			local text = filteredText:GetNonChatStringForBroadcastAsync()
+			local Tag = PHMod.Tag
+			Tag:WaitForChild("Nam").Text = text
+		else
+			warn("Failed to filter text!")
+			print(err)
+			end
+		end)
+		
+	elseif isClient then
+		local GUIHandler = self.RequiredClientModules["GUIHandler"]
+		SMR.OnClientEvent:Connect(function(txt)
+			GUIHandler:CreateSM(txt)
+		end)
+		
+	end
+end
+
+function Main:GetModule(Module)
+	return require(self.Modules[Module])
+end
+
+function Main:GetData(data)
+	return self.Misc[data]
+end
+
+
+
+return Main
